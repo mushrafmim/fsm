@@ -17,9 +17,10 @@ func emit(command string, out Data) PluginFunc {
 	}
 }
 
-// testEngine registers the auto-completing plugins the walk chart uses.
-func testEngine() *Engine {
-	e := New()
+// testEngine registers the auto-completing plugins the walk chart uses. Options
+// (e.g. WithCompletionHandler) are passed through to New.
+func testEngine(opts ...Option) *Engine {
+	e := New(opts...)
 	e.Register("emit-submitted", emit("submitted", Data{"days": 3, "reason": "vacation"}))
 	e.Register("emit-approve", emit("approve", Data{"decision": "approved"}))
 	e.Register("emit-reject", emit("reject", Data{"decision": "rejected"}))
@@ -32,6 +33,7 @@ func testEngine() *Engine {
 // ExecuteWorkflow.)
 func register(env *testsuite.TestWorkflowEnvironment, e *Engine) {
 	env.RegisterActivityWithOptions(e.RunTask, activity.RegisterOptions{Name: RunTaskActivity})
+	env.RegisterActivityWithOptions(e.CompletedTask, activity.RegisterOptions{Name: CompletedTaskActivity})
 }
 
 // walkChart mirrors leave-request: each task exports selected locals to the
@@ -117,6 +119,34 @@ func TestWorkflow_WalkRejected(t *testing.T) {
 	}
 	if _, ok := getPath(out, "leave.notified_at"); ok {
 		t.Errorf("rejected path should not have run notify: %v", out)
+	}
+}
+
+// TestWorkflow_CompletionHandler verifies the injected handler fires at End with
+// the final global bag.
+func TestWorkflow_CompletionHandler(t *testing.T) {
+	ts := &testsuite.WorkflowTestSuite{}
+	env := ts.NewTestWorkflowEnvironment()
+
+	var gotID string
+	var gotDecision any
+	e := testEngine(WithCompletionHandler(func(_ context.Context, executionID string, final Data) error {
+		gotID = executionID
+		gotDecision, _ = getPath(final, "leave.decision")
+		return nil
+	}))
+	register(env, e)
+
+	env.ExecuteWorkflow((&Engine{}).ExecutionWorkflow, walkChart("approve"), Data{})
+
+	if !env.IsWorkflowCompleted() || env.GetWorkflowError() != nil {
+		t.Fatalf("workflow did not complete cleanly: %v", env.GetWorkflowError())
+	}
+	if gotID == "" {
+		t.Error("completion handler was not invoked (executionID empty)")
+	}
+	if gotDecision != "approved" {
+		t.Errorf("completion handler got leave.decision=%v; want approved", gotDecision)
 	}
 }
 

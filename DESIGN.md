@@ -198,6 +198,20 @@ template's config (`PluginProperties`).
 > resolution. (Kept `schemaVersion` at `v1` through this change — pre-release, no
 > charts in the wild to migrate.)
 
+### Completion hook — waking whatever awaits the execution
+
+At an End state the interpreter fires a **`CompletedTask` activity** with the final
+global bag, then returns. The activity invokes an injected **`CompletionHandler`**
+(`WithCompletionHandler`) — a no-op if none is set. Running it as an activity keeps
+`ExecutionWorkflow` deterministic while letting the handler do I/O (e.g. resume a
+parent workflow). It maps 1:1 onto core's `WorkflowCompletionHandler` →
+`HandleTaskCompletion(workflowID, finalVars)`, so the host no longer has to block on
+`WorkflowRun.Get()` in a goroutine.
+
+The activity is **always** invoked (not gated on whether a handler is present), so
+control flow never depends on a live dependency — which would risk non-deterministic
+replay across workers.
+
 ### Integration shape: implement `engine.TemporalManager`
 
 To swap into the TaskManager without touching it, the engine implements the

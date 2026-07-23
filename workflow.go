@@ -50,9 +50,18 @@ func (e *Engine) ExecutionWorkflow(ctx workflow.Context, chart Chart, input Data
 
 		// Terminal state (declared): we're done. Terminality is explicit (End),
 		// not inferred from missing transitions — Validate rejects unwired
-		// non-end states up front.
+		// non-end states up front. Fire the completion activity (a no-op unless a
+		// CompletionHandler is injected) so a host can wake whatever awaits this
+		// execution, then return the final global bag.
 		if state.End {
 			logger.Info("execution complete", "state", current)
+			doneCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+				StartToCloseTimeout: time.Minute,
+			})
+			execID := workflow.GetInfo(ctx).WorkflowExecution.ID
+			if err := workflow.ExecuteActivity(doneCtx, CompletedTaskActivity, execID, data).Get(ctx, nil); err != nil {
+				return data, fmt.Errorf("completion handler at state %q: %w", current, err)
+			}
 			return data, nil
 		}
 

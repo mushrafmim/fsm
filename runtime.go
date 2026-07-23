@@ -33,8 +33,9 @@ const StatusQuery = "status"
 // explicit names (rather than reflected method-value names) so behaviour is
 // unambiguous.
 const (
-	WorkflowName    = "ExecutionWorkflow"
-	RunTaskActivity = "RunTask"
+	WorkflowName          = "ExecutionWorkflow"
+	RunTaskActivity       = "RunTask"
+	CompletedTaskActivity = "CompletedTask"
 )
 
 // CompletionNamespace is the Temporal namespace parked tasks are completed

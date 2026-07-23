@@ -62,6 +62,12 @@ func (f PluginFunc) Run(ctx context.Context, req TaskRequest, config []byte) (Re
 // injects its own handler via WithHandler and does not use the registry.
 type TaskHandler func(ctx context.Context, req TaskRequest) (Result, error)
 
+// CompletionHandler is invoked once, at an execution's End state, with the final
+// global bag. It is the hook a host uses to wake whatever is waiting on this
+// execution — e.g. core's TaskManager resuming the parent workflow. It runs as an
+// activity (see CompletedTask), so it may do I/O and reach live dependencies.
+type CompletionHandler func(ctx context.Context, executionID string, final Data) error
+
 // ConfigFetcher resolves a task's reference (TaskTemplateID) into raw config for
 // the default registry handler. Injected so it can be swapped (file, HTTP, DB) or
 // mocked. Runs only inside the runner activity, never in workflow code.
@@ -76,10 +82,11 @@ func (NopConfigFetcher) Fetch(context.Context, string) ([]byte, error) { return 
 
 // Engine drives executions via Temporal.
 type Engine struct {
-	client  client.Client
-	fetcher ConfigFetcher
-	plugins map[string]Plugin
-	handler TaskHandler // injected work source; nil ⇒ registry-backed default
+	client     client.Client
+	fetcher    ConfigFetcher
+	plugins    map[string]Plugin
+	handler    TaskHandler       // injected work source; nil ⇒ registry-backed default
+	onComplete CompletionHandler // invoked at End; nil ⇒ no-op
 }
 
 // Option configures an Engine at construction.
@@ -96,6 +103,12 @@ func WithConfigFetcher(f ConfigFetcher) Option { return func(e *Engine) { e.fetc
 // dispatches to it instead of the plugin registry, so the host owns how a
 // TaskTemplateID resolves to real work (e.g. core's TaskManager).
 func WithHandler(h TaskHandler) Option { return func(e *Engine) { e.handler = h } }
+
+// WithCompletionHandler injects the handler invoked at an execution's End state.
+// Without it, End is a no-op beyond returning the final data.
+func WithCompletionHandler(h CompletionHandler) Option {
+	return func(e *Engine) { e.onComplete = h }
+}
 
 // New builds an Engine. Defaults: a no-op config fetcher and an empty registry.
 func New(opts ...Option) *Engine {
@@ -114,11 +127,24 @@ func (e *Engine) Register(name string, p Plugin) {
 	e.plugins[name] = p
 }
 
-// RegisterWorker wires the workflow and the task-runner activity onto a worker,
-// under their stable names.
+// RegisterWorker wires the workflow and the activities onto a worker, under their
+// stable names.
 func (e *Engine) RegisterWorker(w worker.Worker) {
 	w.RegisterWorkflowWithOptions(e.ExecutionWorkflow, workflow.RegisterOptions{Name: WorkflowName})
 	w.RegisterActivityWithOptions(e.RunTask, activity.RegisterOptions{Name: RunTaskActivity})
+	w.RegisterActivityWithOptions(e.CompletedTask, activity.RegisterOptions{Name: CompletedTaskActivity})
+}
+
+// CompletedTask is the activity fired at an execution's End state. It invokes the
+// injected CompletionHandler (a no-op if none is set). Running it as an activity
+// keeps ExecutionWorkflow deterministic while letting the handler do I/O — e.g.
+// resume a parent workflow. It is always invoked, so control flow doesn't depend
+// on whether a handler is present (which would risk non-deterministic replay).
+func (e *Engine) CompletedTask(ctx context.Context, executionID string, final Data) error {
+	if e.onComplete == nil {
+		return nil
+	}
+	return e.onComplete(ctx, executionID, final)
 }
 
 // RunTask is the generic task runner, executed as a Temporal activity. It
