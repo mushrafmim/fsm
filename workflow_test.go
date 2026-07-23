@@ -39,7 +39,8 @@ func register(env *testsuite.TestWorkflowEnvironment, e *Engine) {
 // command chooses the branch. verdictCmd selects the approval plugin.
 func walkChart(verdictCmd string) Chart {
 	return Chart{
-		Initial: "collect",
+		SchemaVersion: CurrentSchemaVersion,
+		Initial:       "collect",
 		States: []State{
 			{Name: "collect", Plugin: "emit-submitted", ConfigRef: "c/form",
 				Transitions: []Transition{
@@ -146,7 +147,8 @@ func TestWorkflow_Loop(t *testing.T) {
 	register(env, loopEngine())
 
 	chart := Chart{
-		Initial: "loop",
+		SchemaVersion: CurrentSchemaVersion,
+		Initial:       "loop",
 		States: []State{
 			{Name: "loop", Plugin: "counter", ConfigRef: "c/loop",
 				Input: map[string]string{"prog.count?": "count"}, // absent on the first pass

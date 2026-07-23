@@ -1,4 +1,5 @@
 {
+  "schemaVersion": "v1",
   "initial": "collect-details",
   "inputs": {
     "leave.applicant_id": "The employee who owns this leave request",

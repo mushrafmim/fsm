@@ -154,6 +154,26 @@ Distinct from a state's `input` (per-task global→local reads); chart `inputs` 
 execution's **parameter list**. `Validate` only checks the names are non-empty — it
 deliberately does not police that every declared input is read somewhere.
 
+### Schema version — format evolution
+
+Every chart declares a top-level **`schemaVersion`** (e.g. `"v1"`) — the version of
+the chart *format*, so the engine can evolve the DSL with breaking changes and still
+load old charts. It is the format version, **distinct from** any per-chart *content*
+revision.
+
+- `Validate` requires it, rejects an **unknown** version (typo, or a chart authored by
+  a newer engine).
+- The pattern (deferred until the first breaking change): keep **one internal
+  representation** and write small `migrate_vN → current` up-converters that run at
+  load, so the interpreter only ever sees the current shape — never N interpreters.
+- Additive, backward-compatible changes (like everything we've added so far) do **not**
+  bump it; only breaking structural changes do.
+
+The field is added *now*, ahead of any breaking change, because an unversioned chart is
+un-migratable later (you can't tell which format it's in). It also complements
+principle 11: a long-running execution carries its chart *and* its `schemaVersion`, so
+an engine upgrade can still interpret in-flight snapshots.
+
 ### Integration shape: implement `engine.TemporalManager`
 
 To swap into the TaskManager without touching it, the engine implements the

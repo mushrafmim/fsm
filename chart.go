@@ -73,9 +73,25 @@ type State struct {
 	End         bool              `json:"end,omitempty"`
 }
 
+// CurrentSchemaVersion is the chart *format* version this engine authors and
+// interprets. A breaking change to the chart structure bumps it; a migrator then
+// up-converts older documents to the current shape on load, so old charts keep
+// working. Additive, backward-compatible changes do not bump it. (This is the
+// format version, distinct from any per-chart *content* revision.)
+const CurrentSchemaVersion = "v1"
+
+// knownSchemaVersions are the format versions this engine can load — the current
+// one plus any older ones it knows how to migrate up. A version outside this set
+// is either a typo or a chart authored by a newer engine.
+var knownSchemaVersions = map[string]bool{
+	"v1": true,
+}
+
 // Chart is the static definition of the whole FSM: the starting state and every
 // state. Transitions are not a separate list — each state carries its own
 // outgoing edges in State.Transitions.
+//
+// SchemaVersion is the chart format version (e.g. "v1"); see CurrentSchemaVersion.
 //
 // Inputs declares the initial global variables the execution expects at start —
 // the workflow's parameter contract, kept in the chart so it is self-explanatory
@@ -84,9 +100,10 @@ type State struct {
 // and CheckInputs enforces it before an execution is launched. (Distinct from a
 // state's Input, which reads global → local at each task.)
 type Chart struct {
-	Initial StateName         `json:"initial"`
-	Inputs  map[string]string `json:"inputs,omitempty"`
-	States  []State           `json:"states"`
+	SchemaVersion string            `json:"schemaVersion"`
+	Initial       StateName         `json:"initial"`
+	Inputs        map[string]string `json:"inputs,omitempty"`
+	States        []State           `json:"states"`
 }
 
 // CheckInputs verifies a start-time seed satisfies the chart's declared inputs:
@@ -116,6 +133,7 @@ func (c Chart) CheckInputs(seed Data) error {
 // chart should be rejected here, up front, rather than blowing up halfway
 // through an execution. We check:
 //
+//  0. The schemaVersion is present and known to this engine.
 //  1. There is an initial state.
 //  2. No two states share a name.
 //  3. Every non-end state declares which plugin it runs. (End states run no
@@ -131,6 +149,12 @@ func (c Chart) CheckInputs(seed Data) error {
 // Points 5 & 7 are what replace the old map's structural guarantees now that
 // transitions are an ordered list and terminals are explicit.
 func (c Chart) Validate() error {
+	if c.SchemaVersion == "" {
+		return fmt.Errorf("chart has no schemaVersion (set %q)", CurrentSchemaVersion)
+	}
+	if !knownSchemaVersions[c.SchemaVersion] {
+		return fmt.Errorf("chart schemaVersion %q is not known to this engine (current is %q)", c.SchemaVersion, CurrentSchemaVersion)
+	}
 	if c.Initial == "" {
 		return fmt.Errorf("chart has no initial state")
 	}

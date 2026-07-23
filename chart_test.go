@@ -9,7 +9,8 @@ import "testing"
 //	                   └────rejected────▶ finish
 func sampleChart() Chart {
 	return Chart{
-		Initial: "fetch",
+		SchemaVersion: "v1",
+		Initial:       "fetch",
 		States: []State{
 			{Name: "fetch", Plugin: "http-call", ConfigRef: "config/fetch",
 				Transitions: []Transition{{Command: "done", Target: "approve"}}},
@@ -37,6 +38,8 @@ func TestValidate_Errors(t *testing.T) {
 		name   string
 		break_ func(c *Chart)
 	}{
+		{"missing schemaVersion", func(c *Chart) { c.SchemaVersion = "" }},
+		{"unknown schemaVersion", func(c *Chart) { c.SchemaVersion = "v99" }},
 		{"no initial state", func(c *Chart) { c.Initial = "" }},
 		{"initial not defined", func(c *Chart) { c.Initial = "ghost" }},
 		{"empty state name", func(c *Chart) { c.States[0].Name = "" }},
