@@ -16,7 +16,7 @@ import (
 	"os"
 	"time"
 
-	"fsm"
+	"github.com/mushrafmim/fsm"
 
 	"go.temporal.io/sdk/client"
 )

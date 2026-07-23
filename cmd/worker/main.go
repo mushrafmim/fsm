@@ -15,7 +15,7 @@ import (
 	"log"
 	"time"
 
-	"fsm"
+	"github.com/mushrafmim/fsm"
 
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/worker"

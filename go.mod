@@ -1,4 +1,4 @@
-module fsm
+module github.com/mushrafmim/fsm
 
 go 1.26
 
