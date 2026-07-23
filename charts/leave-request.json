@@ -1,0 +1,78 @@
+{
+  "initial": "collect-details",
+  "states": [
+    {
+      "name": "collect-details",
+      "plugin": "UserForm",
+      "configRef": "config/leave-request/form",
+      "input": {
+        "leave.rejection_reason?": "rejection_reason"
+      },
+      "transitions": [
+        {
+          "command": "submitted",
+          "target": "manager-approval",
+          "writes": {
+            "days": "leave.days",
+            "reason": "leave.reason",
+            "start_date": "leave.start_date"
+          }
+        }
+      ]
+    },
+    {
+      "name": "manager-approval",
+      "plugin": "await-approval",
+      "configRef": "config/leave-request/approval",
+      "input": {
+        "leave.days": "days",
+        "leave.reason": "reason",
+        "leave.start_date?": "start_date"
+      },
+      "transitions": [
+        {
+          "command": "approve",
+          "target": "notify",
+          "writes": {
+            "decision": "leave.decision",
+            "comment?": "leave.manager_comment"
+          }
+        },
+        {
+          "command": "reject",
+          "target": "rejected",
+          "writes": {
+            "decision": "leave.decision",
+            "rejection_reason": "leave.rejection_reason"
+          }
+        }
+      ]
+    },
+    {
+      "name": "notify",
+      "plugin": "http-call",
+      "configRef": "config/leave-request/notify",
+      "input": {
+        "leave.days": "days",
+        "leave.decision": "decision"
+      },
+      "transitions": [
+        {
+          "command": "sent",
+          "target": "approved",
+          "writes": {
+            "notified_at": "leave.notified_at"
+          }
+        }
+      ]
+    },
+    {
+      "name": "approved",
+      "end": true
+    },
+    {
+      "name": "rejected",
+      "end": true
+    }
+  ]
+}

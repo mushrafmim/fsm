@@ -1,0 +1,83 @@
+{
+  "initial": "collect-form",
+  "states": [
+    {
+      "name": "collect-form",
+      "plugin": "UserForm",
+      "configRef": "config/form-review/form",
+      "input": {
+        "review.reviewer_feedback?": "reviewer_feedback"
+      },
+      "transitions": [
+        {
+          "command": "submitted",
+          "target": "external-review",
+          "writes": {
+            "title": "review.title",
+            "content": "review.content"
+          }
+        }
+      ]
+    },
+    {
+      "name": "external-review",
+      "plugin": "external-review",
+      "configRef": "config/form-review/review",
+      "input": {
+        "review.title": "title",
+        "review.content": "content"
+      },
+      "transitions": [
+        {
+          "command": "approved",
+          "target": "publish",
+          "writes": {
+            "verdict": "review.verdict",
+            "certificate_id": "review.certificate_id"
+          }
+        },
+        {
+          "command": "needs_changes",
+          "target": "collect-form",
+          "writes": {
+            "verdict": "review.verdict",
+            "reviewer_feedback": "review.reviewer_feedback"
+          }
+        },
+        {
+          "command": "rejected",
+          "target": "rejected",
+          "writes": {
+            "verdict": "review.verdict",
+            "reviewer_feedback": "review.reviewer_feedback"
+          }
+        }
+      ]
+    },
+    {
+      "name": "publish",
+      "plugin": "http-call",
+      "configRef": "config/form-review/publish",
+      "input": {
+        "review.certificate_id": "certificate_id"
+      },
+      "transitions": [
+        {
+          "command": "published",
+          "target": "approved",
+          "writes": {
+            "published_url": "review.published_url"
+          }
+        }
+      ]
+    },
+    {
+      "name": "approved",
+      "end": true
+    },
+    {
+      "name": "rejected",
+      "end": true
+    }
+  ]
+}
