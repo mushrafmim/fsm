@@ -174,6 +174,30 @@ un-migratable later (you can't tell which format it's in). It also complements
 principle 11: a long-running execution carries its chart *and* its `schemaVersion`, so
 an engine upgrade can still interpret in-flight snapshots.
 
+### Execution — the chart references, the handler resolves
+
+The chart does **not** name a plugin. A state carries a single opaque
+**`taskTemplateID`**, and an injected **`TaskHandler`** resolves that reference to
+real work. This mirrors `core`'s `StartSubTask`: a node names a template id, and the
+executor loads the template → picks the plugin (`TaskType`) → runs it with the
+template's config (`PluginProperties`).
+
+- `RunTask` dispatches to `e.handler`; if none is injected it falls back to the
+  **registry-backed default** (`registryHandler`), which treats the reference as a
+  registered plugin name and fetches config by the same reference. This is what keeps
+  the standalone demo working.
+- A host that owns its own resolution (core's `TaskManager`) injects its handler via
+  `WithHandler`, and the plugin registry / `ConfigFetcher` are simply unused.
+- The engine stays **plugin-agnostic** — it knows only references, the global bag,
+  `input`/`writes` mapping, and routing. That's precisely what lets one engine drive
+  both the demo and core.
+
+> This *refines* principles 2–3: config is still fetched lazily inside the runner
+> activity (never in workflow code), but *who* fetches it moved from the engine's
+> `ConfigFetcher` into the handler — the executor now owns plugin **and** config
+> resolution. (Kept `schemaVersion` at `v1` through this change — pre-release, no
+> charts in the wild to migrate.)
+
 ### Integration shape: implement `engine.TemporalManager`
 
 To swap into the TaskManager without touching it, the engine implements the
@@ -529,8 +553,11 @@ local engine wholesale.
   global variable bag with per-task `input` (global→local) and per-command `writes`
   (local→global), dotted paths + `?` optional *(done — `mapping.go`)*; **(e)** CEL/expr
   `condition` guards over the global bag as an alternative to a command match *(later,
-  optional)*; **(f)** `engine.TemporalManager` facade + injected `TaskActivationHandler`
-  to drop into the core TaskManager *(later, cross-module)*.
+  optional)*; **(f)** reference-based dispatch — states carry a `taskTemplateID`, an
+  injected `TaskHandler` resolves it (registry-backed default), engine is
+  plugin-agnostic *(done — the fsm-side seam for the facade)*; **(g)**
+  `engine.TemporalManager` facade in the `core` module — wire `StartSubTask` as the
+  handler, `StartWorkflow`→walk, `TaskDone`→`Complete` *(later, cross-module)*.
 
 **What's next:**
 - Activity retry/timeout policies (a parked task needs a long `ScheduleToClose` or

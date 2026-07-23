@@ -8,8 +8,7 @@
   "states": [
     {
       "name": "collect-details",
-      "plugin": "UserForm",
-      "configRef": "config/leave-request/form",
+      "taskTemplateID": "UserForm",
       "input": {
         "leave.applicant_id": "applicant_id",
         "leave.rejection_reason?": "rejection_reason"
@@ -28,8 +27,7 @@
     },
     {
       "name": "manager-approval",
-      "plugin": "await-approval",
-      "configRef": "config/leave-request/approval",
+      "taskTemplateID": "await-approval",
       "input": {
         "leave.days": "days",
         "leave.reason": "reason",
@@ -56,8 +54,7 @@
     },
     {
       "name": "notify",
-      "plugin": "http-call",
-      "configRef": "config/leave-request/notify",
+      "taskTemplateID": "http-call",
       "input": {
         "leave.days": "days",
         "leave.decision": "decision"

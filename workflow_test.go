@@ -42,12 +42,12 @@ func walkChart(verdictCmd string) Chart {
 		SchemaVersion: CurrentSchemaVersion,
 		Initial:       "collect",
 		States: []State{
-			{Name: "collect", Plugin: "emit-submitted", ConfigRef: "c/form",
+			{Name: "collect", TaskTemplateID: "emit-submitted",
 				Transitions: []Transition{
 					{Command: "submitted", Target: "approval",
 						Writes: map[string]string{"days": "leave.days", "reason": "leave.reason"}},
 				}},
-			{Name: "approval", Plugin: "emit-" + verdictCmd, ConfigRef: "c/appr",
+			{Name: "approval", TaskTemplateID: "emit-" + verdictCmd,
 				Input: map[string]string{"leave.days": "days", "leave.reason": "reason"},
 				Transitions: []Transition{
 					{Command: "approve", Target: "notify",
@@ -55,7 +55,7 @@ func walkChart(verdictCmd string) Chart {
 					{Command: "reject", Target: "rejected",
 						Writes: map[string]string{"decision": "leave.decision"}},
 				}},
-			{Name: "notify", Plugin: "http-call", ConfigRef: "c/notify",
+			{Name: "notify", TaskTemplateID: "http-call",
 				Input: map[string]string{"leave.decision": "decision"},
 				Transitions: []Transition{
 					{Command: "sent", Target: "approved",
@@ -150,7 +150,7 @@ func TestWorkflow_Loop(t *testing.T) {
 		SchemaVersion: CurrentSchemaVersion,
 		Initial:       "loop",
 		States: []State{
-			{Name: "loop", Plugin: "counter", ConfigRef: "c/loop",
+			{Name: "loop", TaskTemplateID: "counter",
 				Input: map[string]string{"prog.count?": "count"}, // absent on the first pass
 				Transitions: []Transition{
 					{Command: "again", Target: "loop", Writes: map[string]string{"count": "prog.count"}},
@@ -176,7 +176,7 @@ func TestWorkflow_Loop(t *testing.T) {
 func TestRunTask_Advance(t *testing.T) {
 	e := New()
 	e.Register("auto", emit("done", nil))
-	res, err := e.RunTask(context.Background(), TaskRequest{Plugin: "auto"})
+	res, err := e.RunTask(context.Background(), TaskRequest{TaskTemplateID: "auto"})
 	if err != nil {
 		t.Fatalf("RunTask errored: %v", err)
 	}
@@ -192,7 +192,7 @@ func TestRunTask_Parks(t *testing.T) {
 	e.Register("interactive", PluginFunc(func(context.Context, TaskRequest, []byte) (Result, error) {
 		return Result{}, ErrParked
 	}))
-	_, err := e.RunTask(context.Background(), TaskRequest{Plugin: "interactive"})
+	_, err := e.RunTask(context.Background(), TaskRequest{TaskTemplateID: "interactive"})
 	if err != activity.ErrResultPending {
 		t.Fatalf("expected activity.ErrResultPending, got %v", err)
 	}

@@ -85,16 +85,15 @@ func (e *Engine) ExecutionWorkflow(ctx workflow.Context, chart Chart, input Data
 		}
 
 		req := TaskRequest{
-			ExecutionID: workflow.GetInfo(ctx).WorkflowExecution.ID,
-			TaskID:      taskID,
-			State:       current,
-			Plugin:      state.Plugin,
-			ConfigRef:   state.ConfigRef,
-			Data:        localIn,
+			ExecutionID:    workflow.GetInfo(ctx).WorkflowExecution.ID,
+			TaskID:         taskID,
+			State:          current,
+			TaskTemplateID: state.TaskTemplateID,
+			Data:           localIn,
 		}
 		var result Result
 		if err := workflow.ExecuteActivity(actCtx, RunTaskActivity, req).Get(ctx, &result); err != nil {
-			return data, fmt.Errorf("task %q at state %q failed: %w", state.Plugin, state.Name, err)
+			return data, fmt.Errorf("task %q at state %q failed: %w", state.TaskTemplateID, state.Name, err)
 		}
 
 		// Route on the completion command, then export that command's selected

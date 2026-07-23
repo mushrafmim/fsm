@@ -51,9 +51,20 @@ func (f PluginFunc) Run(ctx context.Context, req TaskRequest, config []byte) (Re
 	return f(ctx, req, config)
 }
 
-// ConfigFetcher resolves a state's ConfigRef into raw plugin config. Injected so
-// it can be swapped (file, HTTP, DB) or mocked. Runs only inside the runner
-// activity, never in workflow code.
+// TaskHandler runs one task and is the injection seam that keeps the chart
+// plugin-agnostic: the chart node names a TaskTemplateID, and the handler
+// resolves that reference to real work. It returns the task's Result (command +
+// output), or ErrParked to suspend the task for a later Complete.
+//
+// The default handler is registry-backed (Engine.registryHandler): it treats the
+// reference as a registered plugin name. A host that owns its own resolution —
+// e.g. core's TaskManager, which maps a template id to a plugin type + config —
+// injects its own handler via WithHandler and does not use the registry.
+type TaskHandler func(ctx context.Context, req TaskRequest) (Result, error)
+
+// ConfigFetcher resolves a task's reference (TaskTemplateID) into raw config for
+// the default registry handler. Injected so it can be swapped (file, HTTP, DB) or
+// mocked. Runs only inside the runner activity, never in workflow code.
 type ConfigFetcher interface {
 	Fetch(ctx context.Context, ref string) ([]byte, error)
 }
@@ -68,6 +79,7 @@ type Engine struct {
 	client  client.Client
 	fetcher ConfigFetcher
 	plugins map[string]Plugin
+	handler TaskHandler // injected work source; nil ⇒ registry-backed default
 }
 
 // Option configures an Engine at construction.
@@ -76,8 +88,14 @@ type Option func(*Engine)
 // WithClient injects the Temporal client used by the client-side API.
 func WithClient(c client.Client) Option { return func(e *Engine) { e.client = c } }
 
-// WithConfigFetcher injects the config fetcher used by the task runner.
+// WithConfigFetcher injects the config fetcher used by the default (registry)
+// handler.
 func WithConfigFetcher(f ConfigFetcher) Option { return func(e *Engine) { e.fetcher = f } }
+
+// WithHandler injects the task handler — the work source. When set, RunTask
+// dispatches to it instead of the plugin registry, so the host owns how a
+// TaskTemplateID resolves to real work (e.g. core's TaskManager).
+func WithHandler(h TaskHandler) Option { return func(e *Engine) { e.handler = h } }
 
 // New builds an Engine. Defaults: a no-op config fetcher and an empty registry.
 func New(opts ...Option) *Engine {
@@ -103,22 +121,17 @@ func (e *Engine) RegisterWorker(w worker.Worker) {
 	w.RegisterActivityWithOptions(e.RunTask, activity.RegisterOptions{Name: RunTaskActivity})
 }
 
-// RunTask is the generic task runner, executed as a Temporal activity. It is
-// where all I/O lives: resolve the registered plugin, fetch + inject its config,
-// run one task. If the plugin parks (ErrParked) it returns activity.
-// ErrResultPending, leaving the activity open for a later Complete; otherwise it
-// returns the plugin's Result.
+// RunTask is the generic task runner, executed as a Temporal activity. It
+// dispatches the node's TaskTemplateID to the task handler (the injected one, or
+// the registry-backed default) — the one place I/O lives. If the handler parks
+// (ErrParked) it returns activity.ErrResultPending, leaving the activity open for
+// a later Complete; otherwise it returns the handler's Result.
 func (e *Engine) RunTask(ctx context.Context, req TaskRequest) (Result, error) {
-	p, ok := e.plugins[req.Plugin]
-	if !ok {
-		return Result{}, fmt.Errorf("no plugin registered for %q", req.Plugin)
+	handle := e.handler
+	if handle == nil {
+		handle = e.registryHandler
 	}
-	config, err := e.fetcher.Fetch(ctx, req.ConfigRef)
-	if err != nil {
-		return Result{}, fmt.Errorf("fetch config for plugin %q (ref %q): %w", req.Plugin, req.ConfigRef, err)
-	}
-
-	result, err := p.Run(ctx, req, config)
+	result, err := handle(ctx, req)
 	if errors.Is(err, ErrParked) {
 		// Leave the activity open. The task is resumed later by Complete, which
 		// supplies the real Result via CompleteActivityByID.
@@ -128,6 +141,22 @@ func (e *Engine) RunTask(ctx context.Context, req TaskRequest) (Result, error) {
 		return Result{}, err
 	}
 	return result, nil
+}
+
+// registryHandler is the default TaskHandler: it treats req.TaskTemplateID as a
+// registered plugin name, fetches its config by the same reference, and runs it.
+// A host that owns richer resolution (a template id → plugin type + properties)
+// injects its own handler with WithHandler instead.
+func (e *Engine) registryHandler(ctx context.Context, req TaskRequest) (Result, error) {
+	p, ok := e.plugins[req.TaskTemplateID]
+	if !ok {
+		return Result{}, fmt.Errorf("no plugin registered for %q", req.TaskTemplateID)
+	}
+	config, err := e.fetcher.Fetch(ctx, req.TaskTemplateID)
+	if err != nil {
+		return Result{}, fmt.Errorf("fetch config for %q: %w", req.TaskTemplateID, err)
+	}
+	return p.Run(ctx, req, config)
 }
 
 // --- client-side API (DESIGN principle 5: address executions by id only) ------

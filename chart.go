@@ -46,13 +46,15 @@ type Transition struct {
 	Writes  map[string]string `json:"writes,omitempty"`
 }
 
-// State is one node in the chart. It does NOT hold a live plugin — only the
-// information needed to build one later:
+// State is one node in the chart. It does NOT name a plugin — only a reference
+// the executor resolves at runtime:
 //
-//   - Plugin: which *kind* of plugin runs here (e.g. "http-call").
-//   - ConfigRef: where the engine fetches this plugin's config when the
-//     execution first arrives at this state. The chart only stores the
-//     reference; the actual fetch + init is a runtime concern.
+//   - TaskTemplateID: an opaque *reference* for this node's work. The engine does
+//     not know which plugin or config it maps to — the injected task handler
+//     resolves it (the default handler treats it as a registered plugin name;
+//     core's executor resolves it through a template registry into a plugin +
+//     config). Keeping the chart plugin-agnostic is what lets one engine drive
+//     both the standalone demo and the core TaskManager.
 //   - Input: what this task reads from the global bag, remapped into its own
 //     local names — a map of {globalPath: localPath} (source: destination). A
 //     "?" on a global key makes it optional. The task sees only these locals,
@@ -65,12 +67,11 @@ type Transition struct {
 //     An end state runs no task, so it needs no Plugin and must have no
 //     transitions.
 type State struct {
-	Name        StateName         `json:"name"`
-	Plugin      string            `json:"plugin,omitempty"`
-	ConfigRef   string            `json:"configRef,omitempty"`
-	Input       map[string]string `json:"input,omitempty"`
-	Transitions []Transition      `json:"transitions,omitempty"`
-	End         bool              `json:"end,omitempty"`
+	Name           StateName         `json:"name"`
+	TaskTemplateID string            `json:"taskTemplateID,omitempty"`
+	Input          map[string]string `json:"input,omitempty"`
+	Transitions    []Transition      `json:"transitions,omitempty"`
+	End            bool              `json:"end,omitempty"`
 }
 
 // CurrentSchemaVersion is the chart *format* version this engine authors and
@@ -136,8 +137,8 @@ func (c Chart) CheckInputs(seed Data) error {
 //  0. The schemaVersion is present and known to this engine.
 //  1. There is an initial state.
 //  2. No two states share a name.
-//  3. Every non-end state declares which plugin it runs. (End states run no
-//     task, so they need no plugin.)
+//  3. Every non-end state declares a taskTemplateID. (End states run no task,
+//     so they need none.)
 //  4. The initial state actually exists.
 //  5. Terminality is declared: an end state has no transitions; a non-end state
 //     has at least one — so a state the author forgot to wire is caught here,
@@ -170,8 +171,8 @@ func (c Chart) Validate() error {
 		if known[s.Name] {
 			return fmt.Errorf("duplicate state name: %q", s.Name)
 		}
-		if !s.End && s.Plugin == "" {
-			return fmt.Errorf("state %q declares no plugin", s.Name)
+		if !s.End && s.TaskTemplateID == "" {
+			return fmt.Errorf("state %q declares no taskTemplateID", s.Name)
 		}
 		if s.End {
 			hasEnd = true

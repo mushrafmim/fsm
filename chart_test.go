@@ -12,9 +12,9 @@ func sampleChart() Chart {
 		SchemaVersion: "v1",
 		Initial:       "fetch",
 		States: []State{
-			{Name: "fetch", Plugin: "http-call", ConfigRef: "config/fetch",
+			{Name: "fetch", TaskTemplateID: "http-call",
 				Transitions: []Transition{{Command: "done", Target: "approve"}}},
-			{Name: "approve", Plugin: "await-approval", ConfigRef: "config/approve",
+			{Name: "approve", TaskTemplateID: "await-approval",
 				Transitions: []Transition{
 					{Command: "approved", Target: "finish"},
 					{Command: "rejected", Target: "finish"},
@@ -44,7 +44,7 @@ func TestValidate_Errors(t *testing.T) {
 		{"initial not defined", func(c *Chart) { c.Initial = "ghost" }},
 		{"empty state name", func(c *Chart) { c.States[0].Name = "" }},
 		{"duplicate state", func(c *Chart) { c.States[1].Name = "fetch" }},
-		{"state without plugin", func(c *Chart) { c.States[0].Plugin = "" }},
+		{"state without taskTemplateID", func(c *Chart) { c.States[0].TaskTemplateID = "" }},
 		{"transition to unknown", func(c *Chart) {
 			c.States[0].Transitions = []Transition{{Command: "done", Target: "ghost"}}
 		}},

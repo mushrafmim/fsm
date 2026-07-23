@@ -56,17 +56,22 @@ type Result struct {
 	Data    Data   `json:"data,omitempty"`
 }
 
-// TaskRequest is what the engine hands a plugin for one task run. TaskID is the
-// unique, addressable id of this task's activity: a parked task is resumed by
-// calling Complete with this id, so a plugin that parks must hand TaskID (with
-// ExecutionID) to whoever will complete it later.
+// TaskRequest is what the engine hands the task handler for one task run.
+//
+//   - TaskTemplateID is the chart node's *reference* — the engine does not know
+//     which plugin or config it maps to; the injected handler resolves it (the
+//     default handler treats it as a registered plugin name; core's executor
+//     resolves it through a template registry).
+//   - TaskID is the unique, addressable id of this task's activity: a parked task
+//     is resumed by calling Complete with this id, so whoever parks must hand
+//     TaskID (with ExecutionID) to whoever will complete it later.
+//   - Data is the task's local inputs (already remapped from global by State.Input).
 type TaskRequest struct {
-	ExecutionID string    `json:"executionID"`
-	TaskID      string    `json:"taskID"`
-	State       StateName `json:"state"`
-	Plugin      string    `json:"plugin"`
-	ConfigRef   string    `json:"configRef"`
-	Data        Data      `json:"data"`
+	ExecutionID    string    `json:"executionID"`
+	TaskID         string    `json:"taskID"`
+	State          StateName `json:"state"`
+	TaskTemplateID string    `json:"taskTemplateID"`
+	Data           Data      `json:"data"`
 }
 
 // Status is the snapshot returned by the StatusQuery.

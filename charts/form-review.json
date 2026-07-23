@@ -4,8 +4,7 @@
   "states": [
     {
       "name": "collect-form",
-      "plugin": "UserForm",
-      "configRef": "config/form-review/form",
+      "taskTemplateID": "UserForm",
       "input": {
         "review.reviewer_feedback?": "reviewer_feedback"
       },
@@ -22,8 +21,7 @@
     },
     {
       "name": "external-review",
-      "plugin": "external-review",
-      "configRef": "config/form-review/review",
+      "taskTemplateID": "external-review",
       "input": {
         "review.title": "title",
         "review.content": "content"
@@ -57,8 +55,7 @@
     },
     {
       "name": "publish",
-      "plugin": "http-call",
-      "configRef": "config/form-review/publish",
+      "taskTemplateID": "http-call",
       "input": {
         "review.certificate_id": "certificate_id"
       },
