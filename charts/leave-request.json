@@ -1,11 +1,16 @@
 {
   "initial": "collect-details",
+  "inputs": {
+    "leave.applicant_id": "The employee who owns this leave request",
+    "leave.department?": "Optional pre-filled department"
+  },
   "states": [
     {
       "name": "collect-details",
       "plugin": "UserForm",
       "configRef": "config/leave-request/form",
       "input": {
+        "leave.applicant_id": "applicant_id",
         "leave.rejection_reason?": "rejection_reason"
       },
       "transitions": [

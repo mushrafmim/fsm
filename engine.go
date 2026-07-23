@@ -133,7 +133,13 @@ func (e *Engine) RunTask(ctx context.Context, req TaskRequest) (Result, error) {
 // --- client-side API (DESIGN principle 5: address executions by id only) ------
 
 // Start launches a new execution of chart under id, with the given initial data.
+// The initial data seeds the execution's global bag; it is pre-flight checked
+// against the chart's declared Inputs so a missing required input is rejected
+// before an execution is created.
 func (e *Engine) Start(ctx context.Context, id string, chart Chart, input Data) (client.WorkflowRun, error) {
+	if err := chart.CheckInputs(input); err != nil {
+		return nil, fmt.Errorf("initial inputs: %w", err)
+	}
 	return e.client.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
 		ID:        id,
 		TaskQueue: TaskQueue,

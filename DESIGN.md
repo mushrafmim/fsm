@@ -92,30 +92,67 @@ A task completes with `(command, data)`:
   **completes** the task supplies the command (e.g. the reviewer's `TaskDone` carries
   `"approve"`). This is why command ≠ a synchronous return — it can arrive much later.
 
-### Data namespacing — by state name, not by mapping
+### Data — one global bag, with per-task `input` and per-command `writes`
 
-Rather than declare per-task `input_mapping` / `output_mapping` (as `core/workflow`
-does), we namespace **by convention** using a key that is *already* deterministic: the
-**state name** (`Validate` guarantees names are unique within a chart).
+The execution carries **one global variable bag**. Authors namespace inside it by
+convention (everything under `leave.*`, `cda.*`, …). A task **never touches the global
+bag directly** — mapping moves data across the boundary, and every entry reads
+`"<source>": "<destination>"`:
 
-- **On completion**, a task's output is stored under its state name:
-  `bag[stateName] = output`. No per-field mapping to declare.
-- **On entry**, a task receives the whole namespaced bag and reads upstream data by
-  path, e.g. `bag["officer_verification"].rejection_reason`.
-- **On revisit** (loops), a state overwrites its own namespace with the latest attempt.
+- **`input` (global → local), per task** — before a task runs, `State.Input` remaps
+  selected global paths into the task's own local names:
+  `"leave.days": "days"` = *read global `leave.days`, hand it to the task as local
+  `days`*. The task sees only its declared inputs, so it stays decoupled from every
+  other state.
+- **`writes` (local → global), per command** — a task completes on a command; that
+  transition's `Writes` remaps selected local outputs back into global:
+  `"decision": "leave.decision"` = *take the task's local `decision`, publish it to
+  global `leave.decision`*. It's **per command** because different commands publish
+  different things (approve writes a decision; reject writes a reason).
 
-This replaces `output_mapping` entirely (namespacing was its real job) and removes
-`input_mapping` (tasks read the bag by path). In our command-routed model the output
-namespace is only for **carry-forward data** — routing is the completion command, not a
-variable — so this is all the data plumbing the engine needs.
+A trailing **`?`** on a source key makes it optional (absent ⇒ skip, no error); a
+missing *required* source is a workflow error. Dotted keys are nested paths on either
+side (`maputil`-style get/set — see `mapping.go`).
 
-> **Tradeoff.** `input_mapping` also *decoupled* a plugin's local input name from the
-> workflow variable name. The convention drops that indirection: a task that reads
-> upstream data references the **upstream state name** directly. That's the same
-> mental model the chart author already uses to wire transitions; a generic plugin
-> that shouldn't hardcode a state name can name the path in its own `configRef`
-> instead of as first-class chart mapping. Expr-lang conditions, if added later, read
-> from this same `bag[stateName].field` structure.
+```
+global bag ──input (rename)──▶ task local inputs ──▶ [task] ──▶ local outputs ──writes (rename)──▶ global bag
+```
+
+This is the pattern the real macro/process charts use (`cda.*` variables threaded
+through `input_mapping`/`output_mapping` gateways). It supersedes the earlier
+auto-namespace-by-state-name convention: exports are now **explicit and selected**, and
+tasks are decoupled by their *own* local names rather than by referencing upstream
+state names.
+
+> **Routing stays command-based for now.** Transitions still fire on the completion
+> **command** (string equality). Because `writes` populate the global bag, a later
+> enrichment can add **CEL/expr transition guards** that read global (e.g. cda's
+> `cda.payment_status != 'success'`) *without changing how tasks report effects* —
+> actions only ever write global; transitions only ever read it. That separation is
+> the whole point of routing through the bag. Not built yet.
+
+### Declared inputs — the start-time contract
+
+The chart declares the initial global variables an execution expects, at the top
+level, so the workflow is self-explanatory and its seed is checkable:
+
+```json
+"inputs": {
+  "leave.applicant_id": "The employee who owns this leave request",
+  "leave.department?":  "Optional pre-filled department"
+}
+```
+
+- Key = a **global path** the caller must seed (trailing `?` = optional); value = a
+  human description (what makes it self-documenting).
+- `Start` runs `chart.CheckInputs(seed)` as a **pre-flight**: a missing *required*
+  input is rejected before an execution is created, rather than failing mid-flow.
+- The seed *is* the initial global bag, so the first state's `input` reads straight
+  from it (e.g. `collect-details` maps `leave.applicant_id → applicant_id`).
+
+Distinct from a state's `input` (per-task global→local reads); chart `inputs` is the
+execution's **parameter list**. `Validate` only checks the names are non-empty — it
+deliberately does not police that every declared input is read somewhere.
 
 ### Integration shape: implement `engine.TemporalManager`
 
@@ -468,11 +505,12 @@ local engine wholesale.
   `Validate()` for first-match-wins *(this cut)*; **(b)** interpreter walks states,
   runs the task once, parks via `ErrResultPending`, routes on the completion command
   *(this cut)*; **(c)** client resume API — `Complete(executionID, taskID, result)`
-  via `CompleteActivityByID`, current state/taskID via query *(this cut)*; **(d)** data
-  namespacing by state name — no `input_mapping`/`output_mapping`, `bag[stateName] =
-  output` *(this cut)*; **(e)** expr-lang `condition` guards as an alternative to a
-  command match *(later, optional)*; **(f)** `engine.TemporalManager` facade + injected
-  `TaskActivationHandler` to drop into the core TaskManager *(later, cross-module)*.
+  via `CompleteActivityByID`, current state/taskID via query *(this cut)*; **(d)** one
+  global variable bag with per-task `input` (global→local) and per-command `writes`
+  (local→global), dotted paths + `?` optional *(done — `mapping.go`)*; **(e)** CEL/expr
+  `condition` guards over the global bag as an alternative to a command match *(later,
+  optional)*; **(f)** `engine.TemporalManager` facade + injected `TaskActivationHandler`
+  to drop into the core TaskManager *(later, cross-module)*.
 
 **What's next:**
 - Activity retry/timeout policies (a parked task needs a long `ScheduleToClose` or

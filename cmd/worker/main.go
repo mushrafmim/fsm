@@ -13,6 +13,7 @@ package main
 import (
 	"context"
 	"log"
+	"time"
 
 	"fsm"
 
@@ -35,13 +36,13 @@ func main() {
 	// finishes it (DESIGN "Workflow model v2").
 	e := fsm.New(fsm.WithClient(c))
 
-	// noop / http-call: automatic — never park, just complete with "done". (A
-	// real http-call would use its config to make a request and pick a command.)
-	completeDone := fsm.PluginFunc(func(context.Context, fsm.TaskRequest, []byte) (fsm.Result, error) {
-		return fsm.Result{Command: "done"}, nil
-	})
-	e.Register("noop", completeDone)
-	e.Register("http-call", completeDone)
+	// http-call: automatic — never parks. In the leave-request chart it's the
+	// "notify" step, so it completes with command "sent" and contributes a
+	// notified_at local output (mapped to global by the transition's writes). A
+	// real http-call would use its config to make the request.
+	e.Register("http-call", fsm.PluginFunc(func(context.Context, fsm.TaskRequest, []byte) (fsm.Result, error) {
+		return fsm.Result{Command: "sent", Data: fsm.Data{"notified_at": time.Now().UTC().Format(time.RFC3339)}}, nil
+	}))
 
 	// park suspends the task and waits for an external Complete. The caller
 	// learns the (executionID, taskID) to complete via GetStatus; the command it

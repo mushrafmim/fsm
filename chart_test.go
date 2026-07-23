@@ -78,6 +78,36 @@ func TestValidate_Errors(t *testing.T) {
 	}
 }
 
+// TestCheckInputs covers required-present, required-missing, and optional-absent.
+func TestCheckInputs(t *testing.T) {
+	c := Chart{Inputs: map[string]string{
+		"leave.applicant_id": "required",
+		"leave.department?":  "optional",
+	}}
+
+	// Required present, optional absent → ok.
+	if err := c.CheckInputs(Data{"leave": map[string]any{"applicant_id": "E1"}}); err != nil {
+		t.Fatalf("expected ok, got %v", err)
+	}
+	// Required missing → error.
+	if err := c.CheckInputs(Data{}); err == nil {
+		t.Fatal("expected error for missing required input")
+	}
+	// No declared inputs → nothing to satisfy.
+	if err := (Chart{}).CheckInputs(nil); err != nil {
+		t.Fatalf("empty inputs should pass, got %v", err)
+	}
+}
+
+// TestValidate_EmptyInputName rejects an input declaration with no path.
+func TestValidate_EmptyInputName(t *testing.T) {
+	c := sampleChart()
+	c.Inputs = map[string]string{"?": "no path"}
+	if err := c.Validate(); err == nil {
+		t.Fatal("expected error for empty input name")
+	}
+}
+
 // TestRoute covers first-match-wins and the default (empty-command) edge.
 func TestRoute(t *testing.T) {
 	s := State{
@@ -87,12 +117,12 @@ func TestRoute(t *testing.T) {
 			{Command: "", Target: "fallback"}, // default, must be last
 		},
 	}
-	if got, ok := s.route("approved"); !ok || got != "yes" {
-		t.Fatalf("route(approved) = %q,%v; want yes,true", got, ok)
+	if got, ok := s.route("approved"); !ok || got.Target != "yes" {
+		t.Fatalf("route(approved) = %q,%v; want yes,true", got.Target, ok)
 	}
 	// Any unrecognized command falls through to the default edge.
-	if got, ok := s.route("anything-else"); !ok || got != "fallback" {
-		t.Fatalf("route(anything-else) = %q,%v; want fallback,true", got, ok)
+	if got, ok := s.route("anything-else"); !ok || got.Target != "fallback" {
+		t.Fatalf("route(anything-else) = %q,%v; want fallback,true", got.Target, ok)
 	}
 
 	// Without a default edge, an unmatched command does not route.

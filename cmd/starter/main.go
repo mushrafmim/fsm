@@ -48,7 +48,12 @@ func main() {
 
 	executionID := fmt.Sprintf("leave-request-%d", time.Now().Unix())
 
-	run, err := e.Start(ctx, executionID, chart, fsm.Data{})
+	// Seed the initial global bag with the chart's declared inputs. Start
+	// pre-flight checks this against chart.Inputs (leave.applicant_id is
+	// required; leave.department is optional and omitted here).
+	seed := fsm.Data{"leave": map[string]any{"applicant_id": "EMP-4471"}}
+
+	run, err := e.Start(ctx, executionID, chart, seed)
 	if err != nil {
 		log.Fatalln("start execution:", err)
 	}
@@ -56,16 +61,21 @@ func main() {
 
 	// collect-details is interactive: it parks. Wait until it's parked, then
 	// complete it with the "submitted" command (model v2: completing the task is
-	// what advances it — no separate signal).
+	// what advances it — no separate signal). The Data are the task's local
+	// outputs; the chart's writes export them to the global "leave.*" bag.
 	taskID := waitParked(ctx, e, executionID, "collect-details")
 	complete(ctx, e, executionID, taskID, fsm.Result{
 		Command: "submitted",
-		Data:    fsm.Data{"days": 3, "reason": "vacation"},
+		Data:    fsm.Data{"days": 3, "reason": "vacation", "start_date": "2026-08-01"},
 	})
 
-	// manager-approval is interactive: approve it to continue to notify.
+	// manager-approval is interactive: approve it to continue to notify. The
+	// "approve" command's writes export decision → leave.decision.
 	taskID = waitParked(ctx, e, executionID, "manager-approval")
-	complete(ctx, e, executionID, taskID, fsm.Result{Command: "approved"})
+	complete(ctx, e, executionID, taskID, fsm.Result{
+		Command: "approve",
+		Data:    fsm.Data{"decision": "approved"},
+	})
 
 	// notify is automatic (http-call) and leads to the terminal "done" state.
 	var result fsm.Data

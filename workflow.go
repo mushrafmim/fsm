@@ -76,34 +76,37 @@ func (e *Engine) ExecutionWorkflow(ctx workflow.Context, chart Chart, input Data
 			ActivityID:             taskID,
 			ScheduleToCloseTimeout: 365 * 24 * time.Hour,
 		})
+		// Build the task's local input from the global bag (State.Input), so it
+		// sees only its declared inputs under its own names — never the global
+		// bag directly (DESIGN "Workflow model v2": input, global → local).
+		localIn, err := applyInput(data, state.Input)
+		if err != nil {
+			return data, fmt.Errorf("state %q input mapping: %w", current, err)
+		}
+
 		req := TaskRequest{
 			ExecutionID: workflow.GetInfo(ctx).WorkflowExecution.ID,
 			TaskID:      taskID,
 			State:       current,
 			Plugin:      state.Plugin,
 			ConfigRef:   state.ConfigRef,
-			Data:        data,
+			Data:        localIn,
 		}
 		var result Result
 		if err := workflow.ExecuteActivity(actCtx, RunTaskActivity, req).Get(ctx, &result); err != nil {
 			return data, fmt.Errorf("task %q at state %q failed: %w", state.Plugin, state.Name, err)
 		}
 
-		// Carry the task's output forward, namespaced under this state's name.
-		// State names are unique (Validate), so tasks never collide in the bag
-		// and later tasks read upstream data by path, e.g.
-		// bag["officer_verification"].rejection_reason. No mapping to declare. A
-		// revisited state overwrites its own namespace with the latest attempt.
-		if result.Data != nil {
-			data[string(current)] = result.Data
-		}
-
-		// Route on the completion command.
-		next, ok := state.route(result.Command)
+		// Route on the completion command, then export that command's selected
+		// local outputs into the global bag (Transition.Writes, local → global).
+		t, ok := state.route(result.Command)
 		if !ok {
 			return data, fmt.Errorf("state %q: task completed with command %q and no matching transition", current, result.Command)
 		}
-		logger.Info("task advanced", "from", current, "command", result.Command, "to", next)
-		current = next
+		if err := applyWrites(result.Data, t.Writes, data); err != nil {
+			return data, fmt.Errorf("state %q writes for command %q: %w", current, result.Command, err)
+		}
+		logger.Info("task advanced", "from", current, "command", result.Command, "to", t.Target)
+		current = t.Target
 	}
 }

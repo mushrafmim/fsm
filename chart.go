@@ -1,6 +1,10 @@
 package fsm
 
-import "fmt"
+import (
+	"fmt"
+	"sort"
+	"strings"
+)
 
 // ----------------------------------------------------------------------------
 // Piece 1: the Chart
@@ -27,14 +31,19 @@ type StateName string
 //     empty Command is the **default** edge — it always matches, so a linear
 //     hop is just one empty-command transition.
 //   - Target: the state to move to when this edge fires.
+//   - Writes: what the performed command exports to the global bag — a map of
+//     {localOutputPath: globalPath} (source: destination). A "?" on a local key
+//     makes it optional. This is per-command because different commands publish
+//     different things (approve writes a decision; reject writes a reason).
 //
 // We deliberately start with a single-string match rather than an expr-lang
 // condition: it is the simplest thing that routes and already covers configs
 // whose gateways are equality checks on one task-output value. A richer
 // expr-lang guard can be added later as an alternative to Command.
 type Transition struct {
-	Command string    `json:"command,omitempty"`
-	Target  StateName `json:"target"`
+	Command string            `json:"command,omitempty"`
+	Target  StateName         `json:"target"`
+	Writes  map[string]string `json:"writes,omitempty"`
 }
 
 // State is one node in the chart. It does NOT hold a live plugin — only the
@@ -44,6 +53,10 @@ type Transition struct {
 //   - ConfigRef: where the engine fetches this plugin's config when the
 //     execution first arrives at this state. The chart only stores the
 //     reference; the actual fetch + init is a runtime concern.
+//   - Input: what this task reads from the global bag, remapped into its own
+//     local names — a map of {globalPath: localPath} (source: destination). A
+//     "?" on a global key makes it optional. The task sees only these locals,
+//     never the global bag directly, so it stays decoupled from other states.
 //   - Transitions: this state's outgoing edges, evaluated **in order** after the
 //     task completes — first matching command wins (see Transition).
 //   - End: marks this as a **terminal** state — the execution ends here. Terminal
@@ -52,19 +65,51 @@ type Transition struct {
 //     An end state runs no task, so it needs no Plugin and must have no
 //     transitions.
 type State struct {
-	Name        StateName    `json:"name"`
-	Plugin      string       `json:"plugin,omitempty"`
-	ConfigRef   string       `json:"configRef,omitempty"`
-	Transitions []Transition `json:"transitions,omitempty"`
-	End         bool         `json:"end,omitempty"`
+	Name        StateName         `json:"name"`
+	Plugin      string            `json:"plugin,omitempty"`
+	ConfigRef   string            `json:"configRef,omitempty"`
+	Input       map[string]string `json:"input,omitempty"`
+	Transitions []Transition      `json:"transitions,omitempty"`
+	End         bool              `json:"end,omitempty"`
 }
 
 // Chart is the static definition of the whole FSM: the starting state and every
 // state. Transitions are not a separate list — each state carries its own
 // outgoing edges in State.Transitions.
+//
+// Inputs declares the initial global variables the execution expects at start —
+// the workflow's parameter contract, kept in the chart so it is self-explanatory
+// and checkable. Each key is a global path the caller must seed (with a trailing
+// "?" for optional); the value is a human description. It documents what to pass,
+// and CheckInputs enforces it before an execution is launched. (Distinct from a
+// state's Input, which reads global → local at each task.)
 type Chart struct {
-	Initial StateName `json:"initial"`
-	States  []State   `json:"states"`
+	Initial StateName         `json:"initial"`
+	Inputs  map[string]string `json:"inputs,omitempty"`
+	States  []State           `json:"states"`
+}
+
+// CheckInputs verifies a start-time seed satisfies the chart's declared inputs:
+// every required input (a key without a trailing "?") must be present in seed.
+// Optional inputs may be absent, and extra keys are allowed. Called as a
+// pre-flight by Engine.Start so a seed missing a required input is rejected
+// before a doomed execution is created.
+func (c Chart) CheckInputs(seed Data) error {
+	var missing []string
+	for key := range c.Inputs {
+		path, optional := parseMapKey(key)
+		if optional {
+			continue
+		}
+		if _, ok := getPath(seed, path); !ok {
+			missing = append(missing, path)
+		}
+	}
+	if len(missing) > 0 {
+		sort.Strings(missing) // deterministic message
+		return fmt.Errorf("missing required input(s): %s", strings.Join(missing, ", "))
+	}
+	return nil
 }
 
 // Validate checks that the chart is well-formed enough to be run. A malformed
@@ -117,6 +162,13 @@ func (c Chart) Validate() error {
 		return fmt.Errorf("chart has no end state (mark a terminal state with \"end\": true)")
 	}
 
+	// Declared inputs must at least name a path (an empty name is meaningless).
+	for key := range c.Inputs {
+		if path, _ := parseMapKey(key); path == "" {
+			return fmt.Errorf("chart declares an input with an empty name")
+		}
+	}
+
 	for _, s := range c.States {
 		// Declared terminality: end ⇒ no transitions; non-end ⇒ at least one.
 		if s.End {
@@ -162,15 +214,15 @@ func (c Chart) findState(name StateName) (State, bool) {
 	return State{}, false
 }
 
-// route picks the next state for a completed task's command. It returns the
-// target of the first transition whose Command matches (the empty-command edge
-// always matches, and Validate guarantees it is last), or false if nothing
-// matches — which the caller treats as an error.
-func (s State) route(command string) (StateName, bool) {
+// route picks the transition a completed task's command fires: the first whose
+// Command matches (the empty-command edge always matches, and Validate
+// guarantees it is last), or false if nothing matches — which the caller treats
+// as an error. The whole Transition is returned so the caller can apply Writes.
+func (s State) route(command string) (Transition, bool) {
 	for _, t := range s.Transitions {
 		if t.Command == command || t.Command == "" {
-			return t.Target, true
+			return t, true
 		}
 	}
-	return "", false
+	return Transition{}, false
 }
