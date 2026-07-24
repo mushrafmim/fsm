@@ -61,18 +61,19 @@ func main() {
 
 	// collect-details is interactive: it parks. Wait until it's parked, then
 	// complete it with the "submitted" command (model v2: completing the task is
-	// what advances it — no separate signal). The Data are the task's local
-	// outputs; the chart's writes export them to the global "leave.*" bag.
-	taskID := waitParked(ctx, e, executionID, "collect-details")
-	complete(ctx, e, executionID, taskID, fsm.Result{
+	// what advances it — no separate signal). We resume by executionID alone via
+	// CompleteByExecution — no need to track the fsm taskID. The Data are the
+	// task's local outputs; the chart's writes export them to the "leave.*" bag.
+	waitParked(ctx, e, executionID, "collect-details")
+	complete(ctx, e, executionID, fsm.Result{
 		Command: "submitted",
 		Data:    fsm.Data{"days": 3, "reason": "vacation", "start_date": "2026-08-01"},
 	})
 
 	// manager-approval is interactive: approve it to continue to notify. The
 	// "approve" command's writes export decision → leave.decision.
-	taskID = waitParked(ctx, e, executionID, "manager-approval")
-	complete(ctx, e, executionID, taskID, fsm.Result{
+	waitParked(ctx, e, executionID, "manager-approval")
+	complete(ctx, e, executionID, fsm.Result{
 		Command: "approve",
 		Data:    fsm.Data{"decision": "approved"},
 	})
@@ -86,9 +87,9 @@ func main() {
 }
 
 // waitParked polls GetStatus until the execution is parked at the expected state
-// (its task id is assigned) and returns that task id, so the caller can Complete
-// it. This stands in for a real caller that would learn (executionID, taskID)
-// from the parked task's own notification.
+// (its task id is assigned) — a synchronization gate before we resume. It still
+// returns the task id (handy for logging / a precise Complete), but the caller
+// here resumes by executionID via CompleteByExecution and ignores it.
 func waitParked(ctx context.Context, e *fsm.Engine, id string, want fsm.StateName) string {
 	const attempts = 50
 	var last fsm.Status
@@ -107,9 +108,9 @@ func waitParked(ctx context.Context, e *fsm.Engine, id string, want fsm.StateNam
 	return ""
 }
 
-func complete(ctx context.Context, e *fsm.Engine, id, taskID string, result fsm.Result) {
-	if err := e.Complete(ctx, id, taskID, result); err != nil {
-		log.Fatalf("complete task %s with %q: %v", taskID, result.Command, err)
+func complete(ctx context.Context, e *fsm.Engine, id string, result fsm.Result) {
+	if err := e.CompleteByExecution(ctx, id, result); err != nil {
+		log.Fatalf("complete %s with %q: %v", id, result.Command, err)
 	}
-	log.Printf("completed task %s with command %q", taskID, result.Command)
+	log.Printf("completed %s with command %q", id, result.Command)
 }
