@@ -215,6 +215,22 @@ The activity is **always** invoked (not gated on whether a handler is present), 
 control flow never depends on a live dependency — which would risk non-deterministic
 replay across workers.
 
+### Resume ergonomics
+
+Two ways to resume a parked task:
+
+- **`Complete(executionID, taskID, result)`** — precise; needs the `taskID` the task
+  was assigned (handed to the handler as `req.TaskID`, or read from `GetStatus`).
+  Best for loops / exact targeting.
+- **`CompleteByExecution(executionID, result)`** — convenience; reads the current
+  `taskID` via `GetStatus`, then completes. For callers holding only the executionID
+  (e.g. core's `TaskDone`). Assumes the execution is parked now.
+
+**Non-branching resume needs no command:** model the step's single transition as the
+default (empty-command) edge, then resume with `Result{Data: ...}` and an empty
+`Command` — the default edge always matches, so there's no command to invent. Core's
+`CompleteTaskStep` (no command concept) relies on exactly this.
+
 ### Integration shape: implement `engine.TemporalManager`
 
 To swap into the TaskManager without touching it, the engine implements the

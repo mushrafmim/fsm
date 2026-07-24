@@ -215,10 +215,30 @@ func (e *Engine) Start(ctx context.Context, id string, chart Chart, input Data) 
 
 // Complete finishes a parked task. taskID is the id the workflow assigned the
 // task (read it from GetStatus, or it was handed to the plugin as req.TaskID).
-// The Result's command selects the outgoing transition; its data merges into the
-// execution. This is the resume verb that drives the engine to advance.
+// The Result's command selects the outgoing transition; the transition's writes
+// export the Result's data into the global bag. This is the resume verb that
+// drives the engine to advance.
+//
+// For a NON-branching step — model its single transition as the default
+// (empty-command) edge — pass Result{Data: ...} with an empty Command: the
+// default edge always matches, so the step advances with no command to invent.
+// That is the canonical "just resume the interactive step" call.
 func (e *Engine) Complete(ctx context.Context, executionID, taskID string, result Result) error {
 	return e.client.CompleteActivityByID(ctx, CompletionNamespace, executionID, "", taskID, result, nil)
+}
+
+// CompleteByExecution resumes an execution's currently-parked task without the
+// caller tracking its taskID: it reads the current TaskID via GetStatus, then
+// Completes it. Convenient when the caller holds only the executionID (e.g. a
+// resume entry point keyed on the execution, like core's TaskDone). It assumes
+// the execution is parked now; for precise targeting or loop revisits, prefer
+// Complete with a persisted taskID.
+func (e *Engine) CompleteByExecution(ctx context.Context, executionID string, result Result) error {
+	s, err := e.GetStatus(ctx, executionID)
+	if err != nil {
+		return fmt.Errorf("resolve current task for %q: %w", executionID, err)
+	}
+	return e.Complete(ctx, executionID, s.TaskID, result)
 }
 
 // GetStatus returns where an execution currently sits — its state and the id of
