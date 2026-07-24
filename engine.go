@@ -87,6 +87,7 @@ type Engine struct {
 	plugins    map[string]Plugin
 	handler    TaskHandler       // injected work source; nil ⇒ registry-backed default
 	onComplete CompletionHandler // invoked at End; nil ⇒ no-op
+	taskQueue  string            // queue to dispatch to / listen on
 }
 
 // Option configures an Engine at construction.
@@ -110,17 +111,28 @@ func WithCompletionHandler(h CompletionHandler) Option {
 	return func(e *Engine) { e.onComplete = h }
 }
 
-// New builds an Engine. Defaults: a no-op config fetcher and an empty registry.
+// WithTaskQueue sets the Temporal task queue this engine dispatches to (and that
+// its workers listen on). Defaults to DefaultTaskQueue. Useful to namespace or
+// share queues across engines.
+func WithTaskQueue(q string) Option { return func(e *Engine) { e.taskQueue = q } }
+
+// New builds an Engine. Defaults: a no-op config fetcher, an empty registry, and
+// the default task queue.
 func New(opts ...Option) *Engine {
 	e := &Engine{
-		fetcher: NopConfigFetcher{},
-		plugins: map[string]Plugin{},
+		fetcher:   NopConfigFetcher{},
+		plugins:   map[string]Plugin{},
+		taskQueue: DefaultTaskQueue,
 	}
 	for _, o := range opts {
 		o(e)
 	}
 	return e
 }
+
+// TaskQueue returns the task queue this engine dispatches to and that workers
+// hosting it should listen on (see WithTaskQueue).
+func (e *Engine) TaskQueue() string { return e.taskQueue }
 
 // Register adds a plugin under name.
 func (e *Engine) Register(name string, p Plugin) {
@@ -197,7 +209,7 @@ func (e *Engine) Start(ctx context.Context, id string, chart Chart, input Data) 
 	}
 	return e.client.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
 		ID:        id,
-		TaskQueue: TaskQueue,
+		TaskQueue: e.taskQueue,
 	}, WorkflowName, chart, input)
 }
 

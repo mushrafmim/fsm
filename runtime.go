@@ -19,9 +19,10 @@ import "errors"
 //   - inspecting current state  -> a Query
 // ----------------------------------------------------------------------------
 
-// TaskQueue is the Temporal task queue the worker listens on and the engine
-// dispatches to. Both sides must agree on this string.
-const TaskQueue = "fsm-task-queue"
+// DefaultTaskQueue is the task queue an engine uses unless WithTaskQueue
+// overrides it. The worker and the engine must agree on the queue; read it back
+// from Engine.TaskQueue() so the two can't drift.
+const DefaultTaskQueue = "fsm-task-queue"
 
 // StatusQuery returns where an execution currently sits (state + the id of the
 // task it is on), so a caller can both inspect it and learn the TaskID it needs

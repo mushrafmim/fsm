@@ -191,6 +191,9 @@ template's config (`PluginProperties`).
 - The engine stays **plugin-agnostic** — it knows only references, the global bag,
   `input`/`writes` mapping, and routing. That's precisely what lets one engine drive
   both the demo and core.
+- The **task queue** is configurable: `WithTaskQueue` overrides `DefaultTaskQueue`,
+  and workers read it back via `Engine.TaskQueue()` so dispatch and worker can't
+  drift onto different queues.
 
 > This *refines* principles 2–3: config is still fetched lazily inside the runner
 > activity (never in workflow code), but *who* fetches it moved from the engine's

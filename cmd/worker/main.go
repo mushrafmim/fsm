@@ -63,10 +63,10 @@ func main() {
 		return fsm.Result{}, fsm.ErrParked
 	}))
 
-	w := worker.New(c, fsm.TaskQueue, worker.Options{})
+	w := worker.New(c, e.TaskQueue(), worker.Options{})
 	e.RegisterWorker(w)
 
-	log.Println("worker listening on task queue:", fsm.TaskQueue)
+	log.Println("worker listening on task queue:", e.TaskQueue())
 	if err := w.Run(worker.InterruptCh()); err != nil {
 		log.Fatalln("worker stopped:", err)
 	}
